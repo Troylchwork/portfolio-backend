@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "mongoose": "^9.9.1",
+    "nodemailer": "^9.0.3"
   }
 }

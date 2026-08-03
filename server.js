@@ -1,35 +1,91 @@
 import express from 'express';
 import cors from 'cors';
+import mongoose from 'mongoose';
+import nodemailer from 'nodemailer';
 
-// 1. 初始化 Express 應用程式 (這一行就是之前漏掉的！)
 const app = express();
-
-// 2. 設定 PORT（優先使用 Render 自動分配的 PORT，本地測試則用 5000）
 const PORT = process.env.PORT || 5000;
 
-// 3. 中介軟體 (Middlewares)
-app.use(cors()); // 允許跨域請求（如 GitHub Pages 呼叫）
-app.use(express.json()); // 允許接收前端傳來的 JSON 格式資料
+app.use(cors());
+app.use(express.json());
 
-// 4. 測試用的根路由 (GET /)
+const MONGO_URI = process.env.MONGO_URI;
+if (MONGO_URI) {
+  mongoose.connect(MONGO_URI)
+    .then(() => console.log('Successfully connected to MongoDB Atlas!'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+}
+
+const contactSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true },
+  subject: { type: String, required: true },
+  message: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const Contact = mongoose.model('Contact', contactSchema);
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
 app.get('/', (req, res) => {
-  res.json({ message: 'Portfolio Backend API is running successfully on Render!' });
+  res.json({ message: 'Portfolio Backend is running with DB & Email Notification!' });
 });
 
-// 5. 聯絡表單 API (POST /api/contact)
-app.post('/api/contact', (req, res) => {
-  const { name, email, message } = req.body;
+app.post('/api/contact', async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
 
-  console.log('收到新的聯絡表單:', { name, email, message });
+    const newContact = await Contact.create({
+      name,
+      email,
+      subject,
+      message,
+    });
+    console.log('Saved to MongoDB:', newContact._id);
 
-  // 暫時回傳成功訊息（之後可以在這裡加存入 MongoDB 的邏輯）
-  res.status(200).json({
-    success: true,
-    message: 'Message received successfully!'
-  });
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: process.env.EMAIL_USER, 
+      replyTo: email,             
+      subject: `[Portfolio Notification] 新留言: ${subject}`,
+      html: `
+        <h3>你的網站收到了一筆新聯絡表單！</h3>
+        <p><strong>姓名：</strong> ${name}</p>
+        <p><strong>Email：</strong> ${email}</p>
+        <p><strong>主題：</strong> ${subject}</p>
+        <p><strong>內容：</strong></p>
+        <blockquote style="background: #f4f4f4; padding: 10px; border-left: 3px solid #ccc;">
+          ${message}
+        </blockquote>
+        <p><small>紀錄時間：${new Date().toLocaleString()}</small></p>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('Notification email sent successfully!');
+
+    res.status(201).json({
+      success: true,
+      message: 'Message saved and email sent successfully!',
+    });
+
+  } catch (error) {
+    console.error('Error processing contact form:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process request',
+      error: error.message,
+    });
+  }
 });
 
-// 6. 啟動伺服器並監聽 PORT
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
