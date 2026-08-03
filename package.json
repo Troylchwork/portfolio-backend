@@ -1,3 +1,14 @@
-"scripts": {
-  "start": "node server.js"
+{
+  "name": "portfolio-backend",
+  "version": "1.0.0",
+  "description": "Portfolio backend service",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
 }
