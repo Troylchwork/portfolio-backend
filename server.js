@@ -1,16 +1,18 @@
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
-import nodemailer from 'nodemailer';
-import dns from 'dns'; 
+import { Resend } from 'resend'; // 1. 引入 Resend
 
-dns.setDefaultResultOrder('ipv4first');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
 
+// 2. 初始化 Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// 3. 連接 MongoDB Atlas
 const MONGO_URI = process.env.MONGO_URI;
 if (MONGO_URI) {
   mongoose.connect(MONGO_URI)
@@ -18,6 +20,7 @@ if (MONGO_URI) {
     .catch((err) => console.error('MongoDB connection error:', err));
 }
 
+// 4. 定義 Contact Schema
 const contactSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true },
@@ -28,27 +31,17 @@ const contactSchema = new mongoose.Schema({
 
 const Contact = mongoose.model('Contact', contactSchema);
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, 
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false 
-  }
-});
-
+// 測試根路由
 app.get('/', (req, res) => {
-  res.json({ message: 'Portfolio Backend is running with DB & Email Notification!' });
+  res.json({ message: 'Portfolio Backend is running with Resend & MongoDB!' });
 });
 
+// 5. POST 聯絡表單 API
 app.post('/api/contact', async (req, res) => {
   try {
     const { name, email, subject, message } = req.body;
 
+    // 任務 A: 寫入 MongoDB 資料庫
     const newContact = await Contact.create({
       name,
       email,
@@ -57,34 +50,40 @@ app.post('/api/contact', async (req, res) => {
     });
     console.log('Saved to MongoDB:', newContact._id);
 
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_USER, 
-      replyTo: email,             
-      subject: `[Portfolio Notification] 新留言: ${subject}`,
-      html: `
-        <h3>你的網站收到了一筆新聯絡表單！</h3>
-        <p><strong>姓名：</strong> ${name}</p>
-        <p><strong>Email：</strong> ${email}</p>
-        <p><strong>主題：</strong> ${subject}</p>
-        <p><strong>內容：</strong></p>
-        <blockquote style="background: #f4f4f4; padding: 10px; border-left: 3px solid #ccc;">
-          ${message}
-        </blockquote>
-        <p><small>紀錄時間：${new Date().toLocaleString()}</small></p>
-      `
-    };
+    // 任務 B: 透過 Resend HTTPS API 發送 Email 通知
+    try {
+      const emailResponse = await resend.emails.send({
+        from: 'Portfolio Contact ', // Resend 免費測試發信地址
+        to: process.env.EMAIL_USER,                       // 你的接收信箱
+        replyTo: email,                                   // 訪客的 Email
+        subject: `[Portfolio Notification] 新留言: ${subject}`,
+        html: `
+          你的網站收到了一筆新聯絡表單！
+          姓名： ${name}
+          Email： ${email}
+          主題： ${subject}
+          內容：
+          
+            ${message}
+          
+          紀錄時間：${new Date().toLocaleString()}
+        `
+      });
 
-    await transporter.sendMail(mailOptions);
-    console.log('Notification email sent successfully!');
+      console.log('✅ Resend Email sent successfully:', emailResponse);
+    } catch (emailErr) {
+      // 獨立捕捉 Email 錯誤，避免發信問題阻斷表單成功狀態
+      console.error('❌ Resend Email sending failed:', emailErr.message);
+    }
 
+    // 回傳成功給前端
     res.status(201).json({
       success: true,
-      message: 'Message saved and email sent successfully!',
+      message: 'Message saved successfully!',
     });
 
   } catch (error) {
-    console.error('Error processing contact form:', error);
+    console.error('Error in /api/contact:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to process request',
